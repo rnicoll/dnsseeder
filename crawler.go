@@ -5,6 +5,7 @@ import (
 	"log"
 	"net"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/btcsuite/btcd/wire"
@@ -58,9 +59,18 @@ func crawlIP(s *dnsseeder, r *result) ([]*wire.NetAddress, *crawlError) {
 	conn.SetDeadline(time.Now().Add(time.Second * maxTo))
 
 	meAddr, youAddr := conn.LocalAddr(), conn.RemoteAddr()
-	me := wire.NewNetAddress(meAddr.(*net.TCPAddr), wire.SFNodeNetwork)
-	you := wire.NewNetAddress(youAddr.(*net.TCPAddr), wire.SFNodeNetwork)
+	me, err := wire.NewNetAddress(meAddr.(*net.TCPAddr), wire.SFNodeNetwork)
+	if err != nil {
+		// Log and handle the error
+		return nil, &crawlError{"Invalid meAddr", err}
+	}
+	you, err := wire.NewNetAddress(youAddr.(*net.TCPAddr), wire.SFNodeNetwork)
+	if err != nil {
+		// Log and handle the error
+		return nil, &crawlError{"Invalid youAddr", err}
+	}
 	msgver := wire.NewMsgVersion(me, you, nounce, 0)
+	msgver.ProtocolVersion = int32(s.pver)
 
 	err = wire.WriteMessage(conn, msgver, s.pver, s.id)
 	if err != nil {
@@ -80,6 +90,9 @@ func crawlIP(s *dnsseeder, r *result) ([]*wire.NetAddress, *crawlError) {
 		// The message is a pointer to a MsgVersion struct.
 		if config.debug {
 			log.Printf("%s - debug - %s - Remote version: %v\n", s.name, r.node, msg.ProtocolVersion)
+		}
+		if !strings.Contains(msg.UserAgent, "Shibetoshi") {
+			return nil, &crawlError{"Received a non-Dogecoin node cause shitcoins have no idea what they are doing...", errors.New("")}
 		}
 		// fill the node struct with the remote details
 		r.version = msg.ProtocolVersion
