@@ -59,16 +59,8 @@ func crawlIP(s *dnsseeder, r *result) ([]*wire.NetAddress, *crawlError) {
 	conn.SetDeadline(time.Now().Add(time.Second * maxTo))
 
 	meAddr, youAddr := conn.LocalAddr(), conn.RemoteAddr()
-	me, err := wire.NewNetAddress(meAddr.(*net.TCPAddr), wire.SFNodeNetwork)
-	if err != nil {
-		// Log and handle the error
-		return nil, &crawlError{"Invalid meAddr", err}
-	}
-	you, err := wire.NewNetAddress(youAddr.(*net.TCPAddr), wire.SFNodeNetwork)
-	if err != nil {
-		// Log and handle the error
-		return nil, &crawlError{"Invalid youAddr", err}
-	}
+	me := wire.NewNetAddress(meAddr.(*net.TCPAddr), wire.SFNodeNetwork)
+	you := wire.NewNetAddress(youAddr.(*net.TCPAddr), wire.SFNodeNetwork)
 	msgver := wire.NewMsgVersion(me, you, nounce, 0)
 	msgver.ProtocolVersion = int32(s.pver)
 
@@ -93,6 +85,12 @@ func crawlIP(s *dnsseeder, r *result) ([]*wire.NetAddress, *crawlError) {
 		}
 		if !strings.Contains(msg.UserAgent, "Shibetoshi") {
 			return nil, &crawlError{"Received a non-Dogecoin node cause shitcoins have no idea what they are doing...", errors.New("")}
+		}
+		if msg.ProtocolVersion < 70015 {
+			return nil, &crawlError{"Protocol version below requirement.", errors.New("")}
+		}
+		if msg.Services&wire.SFNodeNetwork != wire.SFNodeNetwork {
+			return nil, &crawlError{"Peer does not indicate NETWORK.", errors.New("")}
 		}
 		// fill the node struct with the remote details
 		r.version = msg.ProtocolVersion
@@ -151,6 +149,16 @@ func crawlIP(s *dnsseeder, r *result) ([]*wire.NetAddress, *crawlError) {
 			switch msg := msgaddr.(type) {
 			case *wire.MsgAddr:
 				// received the addr message so return the result
+				if len(msg.AddrList) == 1 {
+					// These are addrlocal messages that need to be ignored
+					if config.debug {
+						log.Printf("%s - debug - %s - received single node addr message\n", s.name, r.node)
+					}
+					if c++; c >= 25 {
+						dowhile = false
+					}
+					continue
+				}
 				if config.debug {
 					log.Printf("%s - debug - %s - received valid addr message\n", s.name, r.node)
 				}
