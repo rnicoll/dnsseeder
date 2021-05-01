@@ -126,7 +126,7 @@ func crawlIP(s *dnsseeder, r *result) ([]*wire.NetAddress, *crawlError) {
 
 	// if we get this far and if the seeder is full then don't ask for addresses. This will reduce bandwith usage while still
 	// confirming that we can connect to the remote node
-	if len(s.theList) > s.maxSize {
+	if len(s.theList) > s.MaxSize() {
 		return nil, nil
 	}
 	// send getaddr command
