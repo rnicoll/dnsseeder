@@ -1,0 +1,10 @@
+{
+ "Name": "Dogecoin",
+ "Desc": "Dogecoin Test Net",
+ "Id": "0xdcb7c1fc",
+ "Port": 44556,
+ "Pver": 70003,
+ "DNSName": "testseed.jrn.me.uk",
+ "Seeder1": "node.jrn.me.uk",
+ "TTL": 600
+}
