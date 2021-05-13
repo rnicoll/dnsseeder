@@ -21,11 +21,12 @@ const (
 
 	crawlDelay = 22 // seconds between start crawlwer ticks
 	auditDelay = 22 // minutes between audit channel ticks
-	dnsDelay   = 57 // seconds between updates to active dns record list
+	dnsDelay   = 29 // seconds between updates to active dns record list
+	ngPurgeDelay = 5 // minutes between partial NG purges
 
 	maxFails = 58 // max number of connect fails before we delete a node. Just over 24 hours(checked every 33 minutes)
 
-	maxTo = 250 // max seconds (4min 10 sec) for all comms to node to complete before we timeout
+	maxTo = 125 // max seconds (2min 5 sec) for all comms to node to complete before we timeout
 )
 
 const (
@@ -60,7 +61,7 @@ type dnsseeder struct {
 	counts    NodeCounts       // structure to hold stats for this seeder
 	pver      uint32           // minimum block height for the seeder
 	ttl       uint32           // DNS TTL to use for this seeder
-	maxSize   int              // max number of clients before we start restricting new entries
+	maxSize   uint32              // max number of clients before we start restricting new entries
 	port      uint16           // default network port this seeder uses
 }
 
@@ -142,6 +143,7 @@ func (s *dnsseeder) runSeeder(done <-chan struct{}, wg *sync.WaitGroup) {
 	auditChan := time.NewTicker(time.Minute * auditDelay).C
 	crawlChan := time.NewTicker(time.Second * crawlDelay).C
 	dnsChan := time.NewTicker(time.Second * dnsDelay).C
+	ngPurgeChan := time.NewTicker(time.Minute * ngPurgeDelay).C
 
 	dowhile := true
 	for dowhile == true {
@@ -158,6 +160,9 @@ func (s *dnsseeder) runSeeder(done <-chan struct{}, wg *sync.WaitGroup) {
 		case <-crawlChan:
 			// start a scan to crawl nodes
 			s.startCrawlers(resultsChan)
+		case <-ngPurgeChan:
+			// Purge a few NG nodes if we're full
+			s.purgeNg()
 		case <-done:
 			// done channel closed so exit the select and shutdown the seeder
 			dowhile = false
@@ -249,7 +254,7 @@ func (s *dnsseeder) processResult(r *result) {
 		switch nd.status {
 		case statusRG:
 			// if we are full then any RG failures will skip directly to NG
-			if len(s.theList) > s.maxSize {
+			if len(s.theList) > s.MaxSize() {
 				nd.status = statusNG // not able to connect to this node so ignore
 			} else {
 				if nd.rating += 25; nd.rating > 30 {
@@ -297,7 +302,7 @@ func (s *dnsseeder) processResult(r *result) {
 	added := 0
 
 	// if we are full then skip adding more possible clients
-	if len(s.theList) < s.maxSize {
+	if len(s.theList) < s.MaxSize() {
 		// do not accept more than one third of maxSize addresses from one node
 		oneThird := int(float64(s.maxSize / 3))
 
@@ -335,7 +340,7 @@ func crawlEnd(nd *node) {
 // addNa validates and adds a network address to theList
 func (s *dnsseeder) addNa(nNa *wire.NetAddress) bool {
 
-	if len(s.theList) > s.maxSize {
+	if len(s.theList) > s.MaxSize() {
 		return false
 	}
 
@@ -433,7 +438,7 @@ func (s *dnsseeder) auditNodes() {
 
 	// set this early so for this audit run all NG clients will be purged
 	// and space will be made for new, possible CG clients
-	iAmFull := len(s.theList) > s.maxSize
+	iAmFull := len(s.theList) > s.MaxSize()
 
 	// cgGoal is 75% of the max statusCG clients we can crawl with the current network delay & maxStart settings.
 	// This allows us to cycle statusCG users to keep the list fresh
@@ -510,6 +515,32 @@ func (s *dnsseeder) auditNodes() {
 // teatload loads the dns records with time based test data
 func (s *dnsseeder) loadDNS() {
 	updateDNS(s)
+}
+
+func (s *dnsseeder) purgeNg() {
+	if len(s.theList) < s.MaxSize() {
+		return
+	}
+
+	pruneGoal := int(float64(s.counts.NdStatus[statusNG])*0.25) // 25% of all NG nodes
+	c := 0
+
+	for k, nd := range s.theList {
+		if nd.status == statusNG {
+			c++
+			s.theList[k] = nil
+			delete(s.theList, k)
+		}
+		if c > pruneGoal {
+			break
+		}
+	}
+
+	log.Printf("%s: NG purge complete. %v nodes purges\n", s.name, c)
+}
+
+func (s *dnsseeder) MaxSize() int {
+	return int(s.maxSize - s.counts.NdStatus[statusCG])
 }
 
 // getSeederByName returns a pointer to the seeder based on its name or nil if not found
