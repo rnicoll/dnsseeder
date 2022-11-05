@@ -1,4 +1,4 @@
-module github.com/gombadi/dnsseeder
+module github.com/rnicoll/dnsseeder
 
 go 1.12
 
